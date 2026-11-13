@@ -1,0 +1,45 @@
+name: Diagnose candidate API hosts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network-diagnostics:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Test DNS and HTTPS endpoints
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $hosts = @('huangguoai.com', 'huangguoai.ai', 'api.hdvip0.com', 'api.hdvip3.com', 'api.hdvip4.com', 'api.hongdou-duanju.com', 'api.hongdou-juchang.com', 'api.hongdou-manju.com', 'm.huangguoduanju.net')
+          $rows = @()
+          foreach ($hostName in $hosts) {
+            $dns = ''
+            try {
+              $dns = ((Resolve-DnsName -Name $hostName -Type A -ErrorAction Stop | Where-Object IPAddress | Select-Object -ExpandProperty IPAddress) -join ',')
+            } catch { $dns = 'DNS_ERROR: ' + $_.Exception.Message }
+            foreach ($path in @('/', '/api/edge/request')) {
+              $url = 'https://' + $hostName + $path
+              $status = ''
+              $errorText = ''
+              try {
+                $resp = Invoke-WebRequest -Uri $url -Method Get -MaximumRedirection 0 -TimeoutSec 12 -SkipHttpErrorCheck -ErrorAction Stop
+                $status = [string][int]$resp.StatusCode
+              } catch {
+                $errorText = $_.Exception.Message
+              }
+              $rows += [pscustomobject]@{ Host=$hostName; Path=$path; DNS=$dns; HttpStatus=$status; Error=$errorText }
+            }
+          }
+          $rows | Format-Table -AutoSize | Out-String -Width 280 | Write-Output
+          $rows | ConvertTo-Json -Depth 3 | Set-Content -Path 'network-diagnostics.json' -Encoding utf8
+      - name: Upload network diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-diagnostics
+          path: network-diagnostics.json
+          if-no-files-found: error
