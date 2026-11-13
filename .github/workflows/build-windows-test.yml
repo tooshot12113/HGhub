@@ -1,0 +1,40 @@
+name: Build HGhub Windows (test branch)
+on:
+  push:
+    branches:
+      - fix/http-410-diagnostics-20261113
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build Windows installer
+        run: pnpm exec tauri build --bundles nsis
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: HGhub-v1.2.1-Windows-test
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
