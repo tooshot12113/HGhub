@@ -11,31 +11,45 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
-      - name: Test DNS and HTTPS endpoints
+      - name: Test DNS and actual HGhub POST envelope
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           $hosts = @('huangguoai.com', 'huangguoai.ai', 'api.hdvip0.com', 'api.hdvip3.com', 'api.hdvip4.com', 'api.hongdou-duanju.com', 'api.hongdou-juchang.com', 'api.hongdou-manju.com', 'm.huangguoduanju.net')
           $rows = @()
+          # Public, anonymous, read-only envelope. Never send user credentials or tokens.
+          $envelope = @{ method='GET'; path='/'; body=''; content_type='' } | ConvertTo-Json -Compress
           foreach ($hostName in $hosts) {
             $dns = ''
             try {
               $dns = ((Resolve-DnsName -Name $hostName -Type A -ErrorAction Stop | Where-Object IPAddress | Select-Object -ExpandProperty IPAddress) -join ',')
             } catch { $dns = 'DNS_ERROR: ' + $_.Exception.Message }
-            foreach ($path in @('/', '/api/edge/request')) {
+            foreach ($case in @('root_get', 'edge_post')) {
+              $path = if ($case -eq 'root_get') { '/' } else { '/api/edge/request' }
               $url = 'https://' + $hostName + $path
               $status = ''
               $errorText = ''
+              $contentType = ''
               try {
-                $resp = Invoke-WebRequest -Uri $url -Method Get -MaximumRedirection 0 -TimeoutSec 12 -SkipHttpErrorCheck -ErrorAction Stop
+                $params = @{ Uri=$url; MaximumRedirection=0; TimeoutSec=12; SkipHttpErrorCheck=$true; ErrorAction='Stop' }
+                if ($case -eq 'edge_post') {
+                  $params.Method = 'Post'
+                  $params.Body = $envelope
+                  $params.ContentType = 'application/json'
+                  $params.Headers = @{ Accept='application/json'; Referer=('https://' + $hostName + '/') }
+                } else {
+                  $params.Method = 'Get'
+                }
+                $resp = Invoke-WebRequest @params
                 $status = [string][int]$resp.StatusCode
+                $contentType = [string]$resp.Headers['Content-Type']
               } catch {
                 $errorText = $_.Exception.Message
               }
-              $rows += [pscustomobject]@{ Host=$hostName; Path=$path; DNS=$dns; HttpStatus=$status; Error=$errorText }
+              $rows += [pscustomobject]@{ Host=$hostName; Case=$case; DNS=$dns; HttpStatus=$status; ContentType=$contentType; Error=$errorText }
             }
           }
-          $rows | Format-Table -AutoSize | Out-String -Width 280 | Write-Output
+          $rows | Format-Table -AutoSize | Out-String -Width 300 | Write-Output
           $rows | ConvertTo-Json -Depth 3 | Set-Content -Path 'network-diagnostics.json' -Encoding utf8
       - name: Upload network diagnostics
         uses: actions/upload-artifact@v4
