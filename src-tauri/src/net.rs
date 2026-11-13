@@ -642,6 +642,14 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
                 status = Some(resp.status().as_u16());
                 headers_ms = Some(started.elapsed().as_millis() as u64);
                 if !resp.status().is_success() {
+                    if resp.status().as_u16() == 410 {
+                        crate::playback_log::record("network.media_gone", json!({
+                            "request": request,
+                            "resource": resource,
+                            "status": 410,
+                        }));
+                        return Err("HTTP 410 Gone：媒体资源已失效或迁移，请刷新影片资料后重试；如仍失败，请检查当前线路。".to_string());
+                    }
                     return Err(format!("HTTP {}", resp.status()));
                 }
                 let ctype = resp
