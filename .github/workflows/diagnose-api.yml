@@ -24,17 +24,18 @@ jobs:
             try {
               $dns = ((Resolve-DnsName -Name $hostName -Type A -ErrorAction Stop | Where-Object IPAddress | Select-Object -ExpandProperty IPAddress) -join ',')
             } catch { $dns = 'DNS_ERROR: ' + $_.Exception.Message }
-            foreach ($case in @('root_get', 'edge_post')) {
+            foreach ($case in @('root_get', 'edge_post', 'feed_post')) {
               $path = if ($case -eq 'root_get') { '/' } else { '/api/edge/request' }
               $url = 'https://' + $hostName + $path
               $status = ''
               $errorText = ''
               $contentType = ''
+              $responseClass = ''
               try {
                 $params = @{ Uri=$url; MaximumRedirection=0; TimeoutSec=12; SkipHttpErrorCheck=$true; ErrorAction='Stop' }
-                if ($case -eq 'edge_post') {
+                if ($case -ne 'root_get') {
                   $params.Method = 'Post'
-                  $params.Body = $envelope
+                  $params.Body = if ($case -eq 'feed_post') { @{ method='GET'; path='/api/videos?page=1&size=20'; body=''; content_type='' } | ConvertTo-Json -Compress } else { $envelope }
                   $params.ContentType = 'application/json'
                   $params.Headers = @{ Accept='application/json'; Referer=('https://' + $hostName + '/') }
                 } else {
@@ -43,10 +44,18 @@ jobs:
                 $resp = Invoke-WebRequest @params
                 $status = [string][int]$resp.StatusCode
                 $contentType = [string]$resp.Headers['Content-Type']
+                if ($contentType -match 'json') {
+                  try {
+                    $payload = $resp.Content | ConvertFrom-Json -ErrorAction Stop
+                    if ($null -ne $payload.status) { $responseClass = 'business_status:' + [string]$payload.status }
+                    elseif ($null -ne $payload.code) { $responseClass = 'business_code:' + [string]$payload.code }
+                    else { $responseClass = 'json_no_status' }
+                  } catch { $responseClass = 'json_parse_failed' }
+                }
               } catch {
                 $errorText = $_.Exception.Message
               }
-              $rows += [pscustomobject]@{ Host=$hostName; Case=$case; DNS=$dns; HttpStatus=$status; ContentType=$contentType; Error=$errorText }
+              $rows += [pscustomobject]@{ Host=$hostName; Case=$case; DNS=$dns; HttpStatus=$status; ContentType=$contentType; ResponseClass=$responseClass; Error=$errorText }
             }
           }
           $rows | Format-Table -AutoSize | Out-String -Width 300 | Write-Output
