@@ -570,6 +570,11 @@ pub async fn edge(
                         return Err("401".to_string());
                     }
                     if !status.is_success() {
+                        if status.as_u16() == 410 {
+                            return Err(format!(
+                                "HTTP 410 Gone（上游接口已停用或迁移；当前线路：{line_host}，操作：{operation}）。请检查线路及客户端版本；不会自动绕过访问权限。"
+                            ));
+                        }
                         return Err(format!(
                             "HTTP {status}: {}",
                             text.chars().take(160).collect::<String>()
@@ -663,6 +668,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         for error in [
             "HTTP 404 Not Found: <html>nginx</html>",
+            "HTTP 410 Gone",
             "HTTP 403 Forbidden",
             "401",
             "禁止访问内网",
