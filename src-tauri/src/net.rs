@@ -570,6 +570,11 @@ pub async fn edge(
                         return Err("401".to_string());
                     }
                     if !status.is_success() {
+                        if status.as_u16() == 410 {
+                            return Err(format!(
+                                "HTTP 410 Gone（上游接口已停用或迁移；当前线路：{line_host}，操作：{operation}）。请检查线路及客户端版本；不会自动绕过访问权限。"
+                            ));
+                        }
                         return Err(format!(
                             "HTTP {status}: {}",
                             text.chars().take(160).collect::<String>()
@@ -637,6 +642,14 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
                 status = Some(resp.status().as_u16());
                 headers_ms = Some(started.elapsed().as_millis() as u64);
                 if !resp.status().is_success() {
+                    if resp.status().as_u16() == 410 {
+                        crate::playback_log::record("network.media_gone", json!({
+                            "request": request,
+                            "resource": resource,
+                            "status": 410,
+                        }));
+                        return Err("HTTP 410 Gone：媒体资源已失效或迁移，请刷新影片资料后重试；如仍失败，请检查当前线路。".to_string());
+                    }
                     return Err(format!("HTTP {}", resp.status()));
                 }
                 let ctype = resp
@@ -663,6 +676,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         for error in [
             "HTTP 404 Not Found: <html>nginx</html>",
+            "HTTP 410 Gone",
             "HTTP 403 Forbidden",
             "401",
             "禁止访问内网",

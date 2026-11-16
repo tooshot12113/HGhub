@@ -1,0 +1,51 @@
+name: Diagnose category endpoints
+on:
+  push:
+    branches:
+      - fix/http-410-diagnostics-20261113
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  category-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe anonymous category endpoints
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $paths = @(
+            '/api/videos?page=1&size=8',
+            '/api/videos/category/ai-duanju?page=1&size=8',
+            '/api/videos/category/ai-manju?page=1&size=8',
+            '/api/videos/category/ai-huanlian?page=1&size=8',
+            '/api/videos/category/ai-mogai?page=1&size=8',
+            '/api/posts?page=1&size=8'
+          )
+          $rows = @()
+          foreach ($hostName in @('huangguoai.com','huangguoai.ai')) {
+            foreach ($path in $paths) {
+              $envelope = @{method='GET';path=$path;body='';content_type=''} | ConvertTo-Json -Compress
+              $row = [ordered]@{Host=$hostName;Path=($path -split '\?')[0];HttpStatus='';BusinessStatus='';DataShape='';ItemCount='';Error=''}
+              try {
+                $response = Invoke-WebRequest -Uri "https://$hostName/api/edge/request" -Method Post -Body $envelope -ContentType 'application/json' -Headers @{Accept='application/json';Referer="https://$hostName/"} -SkipHttpErrorCheck -TimeoutSec 15
+                $row.HttpStatus = [string][int]$response.StatusCode
+                try {
+                  $payload = $response.Content | ConvertFrom-Json -ErrorAction Stop
+                  if ($null -ne $payload.status) { $row.BusinessStatus = [string]$payload.status }
+                  if ($null -ne $payload.data) {
+                    $row.DataShape = if ($payload.data -is [array]) {'array'} elseif ($null -ne $payload.data.items) {'items'} else {'other'}
+                    if ($null -ne $payload.data.items) { $row.ItemCount = [string]@($payload.data.items).Count }
+                  }
+                } catch { $row.DataShape='non-json' }
+              } catch { $row.Error=$_.Exception.GetType().Name }
+              $rows += [pscustomobject]$row
+            }
+          }
+          $rows | Format-Table -AutoSize | Out-String -Width 240 | Write-Output
+          $rows | ConvertTo-Json -Depth 3 | Set-Content -Path category-diagnostics.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: category-api-diagnostics
+          path: category-diagnostics.json

@@ -50,12 +50,25 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
     }
   }, []);
 
+  const wasActive = useRef(false);
   useEffect(() => {
-    // 首次打开分类才加载，避免启动时后台频道请求/封面与首页视频竞争网络。
-    if (!active || started.current) return;
-    started.current = true;
-    CHANNELS.forEach(c => { void loadPreview(c.cate); });
-    void loadPreview("posts");
+    // 首次进入加载全部分类；再次进入时只重试之前失败的分类。
+    // 不在页面停留期间循环重试，避免持续请求已失效的上游接口。
+    const entering = active && !wasActive.current;
+    wasActive.current = active;
+    if (!entering) return;
+    if (!started.current) {
+      started.current = true;
+      CHANNELS.forEach(c => { void loadPreview(c.cate); });
+      void loadPreview("posts");
+      return;
+    }
+    CHANNELS.forEach(c => {
+      if (errors[c.cate]) void loadPreview(c.cate);
+    });
+    if (errors.posts) void loadPreview("posts");
+    // 只在 active 由 false 变 true 时检查失败项。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, loadPreview]);
 
   return (

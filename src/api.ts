@@ -52,6 +52,9 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     logLine(`[api] ${cmd} → ${msg}`);
     const status = /^HTTP (\d{3})\b/.exec(msg)?.[1];
     if (status) {
+      if (status === "410") {
+        throw new Error("服务器资源已失效或迁移（HTTP 410）。请重新获取影片资料，或在设置中检查当前线路。");
+      }
       throw new Error(`服务器请求失败（HTTP ${status}），请稍后重试或在设置中切换线路`);
     }
     throw new Error(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg);
