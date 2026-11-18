@@ -1,0 +1,40 @@
+name: HGhub Windows automated integration tests
+on:
+  push:
+    branches:
+      - fix/http-410-diagnostics-20261113
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-browser-tests:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright-core install chromium
+      - name: TypeScript and Vite production build
+        run: pnpm build
+      - name: Test homepage and category error recovery in real Chromium
+        run: pnpm test:api-loading
+      - name: Test local HLS playback and seeking in real Chromium
+        run: pnpm test:playback
+      - name: Upload browser test screenshots and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HGhub-Windows-browser-test-results
+          path: test-results/
+          if-no-files-found: warn
