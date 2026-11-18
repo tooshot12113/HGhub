@@ -66,8 +66,12 @@ try {
   await page.evaluate(() => window.apiLoadingFixture.setActive(false));
   await page.evaluate(() => window.apiLoadingFixture.setActive(true));
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-  assert.equal((await calls()).length, 6, "Revisiting must preserve previews without reloading all channels");
-  report.passed.push("Category: defer hidden loading, show successful rows/posts before slow row, independent error/retry, preserve data on revisit");
+  await page.waitForFunction(() => window.apiLoadingFixture.history.length === 7);
+  assert.equal((await calls()).filter(r => r.args.cate === "ai-mogai").length, 2, "Revisiting retries the failed category");
+  assert.equal((await calls()).filter(r => r.args.cate === "ai-duanju").length, 1, "Revisiting preserves successful previews");
+  await complete("api_category", "ai-mogai", "item");
+  await visible(page.getByText("已加载ai-mogai", { exact: true }));
+  report.passed.push("Category: defer hidden loading, preserve successful previews and retry only failed categories on revisit");
   assert.deepEqual(errors, [], "No page errors");
   assert.deepEqual(report.external, [], "No upstream traffic");
   await page.screenshot({ path: join(output, "final.png"), fullPage: true });
